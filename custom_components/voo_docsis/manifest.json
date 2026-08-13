@@ -1,0 +1,11 @@
+{
+  "domain": "voo_docsis",
+  "name": "VOO Technicolor DOCSIS Monitor",
+  "codeowners": ["@gsabbe"],
+  "config_flow": true,
+  "documentation": "https://github.com/gsabbe/ha-voo-docsis",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/gsabbe/ha-voo-docsis/issues",
+  "requirements": ["aiohttp>=3.8.0"],
+  "version": "1.0.0"
+}

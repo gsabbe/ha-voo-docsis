@@ -1,0 +1,34 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "VOO Technicolor DOCSIS Setup",
+        "description": "Configure modem connection details.",
+        "data": {
+          "host": "Modem IP address or Hostname",
+          "username": "Username (default: voo)",
+          "password": "Password",
+          "scan_interval": "Update Interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to VOO modem. Check IP address.",
+      "invalid_auth": "Invalid username or password.",
+      "unknown": "Unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "Modem is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "VOO DOCSIS Options",
+        "data": {
+          "scan_interval": "Update Interval (seconds)"
+        }
+      }
+    }
+  }
+}
