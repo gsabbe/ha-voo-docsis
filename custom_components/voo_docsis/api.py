@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional
 
 try:
     import aiohttp
+    import yarl
     HAS_AIOHTTP = True
 except ImportError:
     HAS_AIOHTTP = False
@@ -88,20 +89,28 @@ class VooTechnicolorApi:
 
     async def _async_authenticate_aiohttp(self, session: Any) -> bool:
         """Authenticate using aiohttp."""
-        headers = {
+        url_obj = yarl.URL(self.base_url)
+        login_url = f"{self.base_url}/api/v1/session/login"
+
+        # Clear any stale cookies for this host before starting fresh login
+        try:
+            session.cookie_jar.clear_domain(url_obj.host)
+        except Exception:
+            pass
+
+        # Step 1: Seek salt (Do NOT send X-CSRF-TOKEN during login steps)
+        headers1 = {
             "Content-Type": "application/x-www-form-urlencoded",
             "X-Requested-With": "XMLHttpRequest",
             "Referer": f"{self.base_url}/"
         }
-
-        login_url = f"{self.base_url}/api/v1/session/login"
         step1_data = {
             "username": self.username,
             "password": "seeksalthash"
         }
 
         try:
-            async with session.post(login_url, data=step1_data, headers=headers, timeout=10) as resp:
+            async with session.post(login_url, data=step1_data, headers=headers1, timeout=10) as resp:
                 if resp.status != 200:
                     raise CannotConnect(f"HTTP error {resp.status} on login step 1")
                 res1 = await resp.json()
@@ -120,17 +129,19 @@ class VooTechnicolorApi:
             hashed1 = calculate_pbkdf2_hex(self.password, salt)
             final_password = calculate_pbkdf2_hex(hashed1, saltwebui)
 
-        auth_cookie = session.cookie_jar.filter_cookies(self.base_url).get("auth")
-        if auth_cookie:
-            headers["X-CSRF-TOKEN"] = auth_cookie.value
-
+        # Step 2: Final Login (Do NOT send X-CSRF-TOKEN header during login)
+        headers2 = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": f"{self.base_url}/"
+        }
         step2_data = {
             "username": self.username,
             "password": final_password
         }
 
         try:
-            async with session.post(login_url, data=step2_data, headers=headers, timeout=10) as resp2:
+            async with session.post(login_url, data=step2_data, headers=headers2, timeout=10) as resp2:
                 if resp2.status != 200:
                     raise CannotConnect(f"HTTP error {resp2.status} on login step 2")
                 res2 = await resp2.json()
@@ -140,7 +151,8 @@ class VooTechnicolorApi:
         if res2.get("error") != "ok":
             raise InvalidAuth(f"Invalid credentials for user '{self.username}'")
 
-        cookies = session.cookie_jar.filter_cookies(self.base_url)
+        # Save CSRF auth token from newly returned cookies
+        cookies = session.cookie_jar.filter_cookies(url_obj)
         if "auth" in cookies:
             self._auth_token = cookies["auth"].value
         _LOGGER.debug("Successfully authenticated with VOO modem at %s", self.base_url)
@@ -149,6 +161,7 @@ class VooTechnicolorApi:
     def _sync_authenticate_urllib(self) -> bool:
         """Authenticate using Python standard library urllib."""
         login_url = f"{self.base_url}/api/v1/session/login"
+        self._cj.clear()
 
         # Step 1: seek salt
         data1 = urllib.parse.urlencode({"username": self.username, "password": "seeksalthash"}).encode('utf-8')
@@ -180,17 +193,13 @@ class VooTechnicolorApi:
             hashed1 = calculate_pbkdf2_hex(self.password, salt)
             final_password = calculate_pbkdf2_hex(hashed1, saltwebui)
 
-        cookies = {c.name: c.value for c in self._cj}
-        auth_token = cookies.get("auth", "")
-
+        # Step 2: final login (No X-CSRF-TOKEN during login step)
         data2 = urllib.parse.urlencode({"username": self.username, "password": final_password}).encode('utf-8')
         headers2 = {
             "Content-Type": "application/x-www-form-urlencoded",
             "X-Requested-With": "XMLHttpRequest",
             "Referer": f"{self.base_url}/"
         }
-        if auth_token:
-            headers2["X-CSRF-TOKEN"] = auth_token
 
         req2 = urllib.request.Request(login_url, data=data2, headers=headers2)
         try:
@@ -216,6 +225,7 @@ class VooTechnicolorApi:
 
     async def _async_request_aiohttp(self, session: Any, endpoint: str, retry_auth: bool = True) -> Dict[str, Any]:
         """Request endpoint using aiohttp."""
+        url_obj = yarl.URL(self.base_url)
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         headers = {
             "Accept": "application/json, text/javascript, */*; q=0.01",
@@ -223,7 +233,7 @@ class VooTechnicolorApi:
             "Referer": f"{self.base_url}/"
         }
 
-        cookies = session.cookie_jar.filter_cookies(self.base_url)
+        cookies = session.cookie_jar.filter_cookies(url_obj)
         if "auth" in cookies:
             self._auth_token = cookies["auth"].value
         if self._auth_token:

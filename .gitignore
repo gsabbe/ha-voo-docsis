@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Scratch files and temporary test logs
+scratch/
+.system_generated/
+*.log
+
+# macOS
+.DS_Store
