@@ -40,7 +40,8 @@ class VooTechnicolorApi:
         host: str,
         username: str,
         password: str,
-        session: Optional[Any] = None
+        session: Optional[Any] = None,
+        request_timeout: int = 30,
     ) -> None:
         """Initialize the API client."""
         self.host = host.rstrip('/')
@@ -51,6 +52,7 @@ class VooTechnicolorApi:
 
         self.username = username.strip().lower()  # Technicolor backend requires lowercase username (e.g. 'voo')
         self.password = password
+        self.request_timeout = request_timeout
         self._auth_token: str = ""
         self._cj = http.cookiejar.CookieJar()
         self._opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self._cj))
@@ -81,7 +83,7 @@ class VooTechnicolorApi:
         )
 
         try:
-            with self._opener.open(req1, timeout=10) as resp:
+            with self._opener.open(req1, timeout=self.request_timeout) as resp:
                 res1 = json.loads(resp.read().decode('utf-8'))
         except Exception as err:
             raise CannotConnect(f"Failed to connect to modem at {self.base_url}: {err}") from err
@@ -108,7 +110,7 @@ class VooTechnicolorApi:
 
         req2 = urllib.request.Request(login_url, data=data2, headers=headers2)
         try:
-            with self._opener.open(req2, timeout=10) as resp2:
+            with self._opener.open(req2, timeout=self.request_timeout) as resp2:
                 res2 = json.loads(resp2.read().decode('utf-8'))
         except Exception as err:
             raise CannotConnect(f"Failed to complete login on step 2: {err}") from err
@@ -142,7 +144,7 @@ class VooTechnicolorApi:
 
         req = urllib.request.Request(url, headers=headers)
         try:
-            with self._opener.open(req, timeout=10) as resp:
+            with self._opener.open(req, timeout=self.request_timeout) as resp:
                 return json.loads(resp.read().decode('utf-8'))
         except urllib.error.HTTPError as err:
             if err.code == 401 and retry_auth:
@@ -157,7 +159,7 @@ class VooTechnicolorApi:
         """Fetch menu, modem DOCSIS metrics, and system information."""
         try:
             await self._async_request("api/v1/session/menu")
-        except InvalidAuth:
+        except (CannotConnect, InvalidAuth):
             await self.async_authenticate()
             await self._async_request("api/v1/session/menu")
 
