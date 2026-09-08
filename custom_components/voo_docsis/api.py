@@ -5,9 +5,12 @@ import hashlib
 import http.cookiejar
 import json
 import logging
+import time
 import urllib.parse
 import urllib.request
 from typing import Any, Dict, Optional
+
+from .const import DEFAULT_REQUEST_TIMEOUT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,7 +44,7 @@ class VooTechnicolorApi:
         username: str,
         password: str,
         session: Optional[Any] = None,
-        request_timeout: int = 30,
+        request_timeout: int = DEFAULT_REQUEST_TIMEOUT,
     ) -> None:
         """Initialize the API client."""
         self.host = host.rstrip('/')
@@ -55,11 +58,20 @@ class VooTechnicolorApi:
         self.request_timeout = request_timeout
         self._auth_token: str = ""
         self._cj = http.cookiejar.CookieJar()
-        self._opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self._cj))
+        self._opener: Optional[urllib.request.OpenerDirector] = None
+
+    def _get_opener(self) -> urllib.request.OpenerDirector:
+        """Get or initialize urllib opener inside worker thread to avoid blocking event loop."""
+        if self._opener is None:
+            self._opener = urllib.request.build_opener(
+                urllib.request.HTTPCookieProcessor(self._cj)
+            )
+        return self._opener
 
     async def close(self) -> None:
         """Close session resources."""
-        pass
+        self._opener = None
+        self._cj.clear()
 
     async def async_authenticate(self) -> bool:
         """Authenticate with the modem using the two-stage PBKDF2 challenge in thread pool."""
@@ -69,6 +81,7 @@ class VooTechnicolorApi:
         """Authenticate using urllib with isolated cookie jar."""
         login_url = f"{self.base_url}/api/v1/session/login"
         self._cj.clear()
+        opener = self._get_opener()
 
         # Step 1: seek salt
         data1 = urllib.parse.urlencode({"username": self.username, "password": "seeksalthash"}).encode('utf-8')
@@ -78,12 +91,14 @@ class VooTechnicolorApi:
             headers={
                 "Content-Type": "application/x-www-form-urlencoded",
                 "X-Requested-With": "XMLHttpRequest",
-                "Referer": f"{self.base_url}/"
+                "Referer": f"{self.base_url}/",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Connection": "close",
             }
         )
 
         try:
-            with self._opener.open(req1, timeout=self.request_timeout) as resp:
+            with opener.open(req1, timeout=self.request_timeout) as resp:
                 res1 = json.loads(resp.read().decode('utf-8'))
         except Exception as err:
             raise CannotConnect(f"Failed to connect to modem at {self.base_url}: {err}") from err
@@ -105,12 +120,14 @@ class VooTechnicolorApi:
         headers2 = {
             "Content-Type": "application/x-www-form-urlencoded",
             "X-Requested-With": "XMLHttpRequest",
-            "Referer": f"{self.base_url}/"
+            "Referer": f"{self.base_url}/",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Connection": "close",
         }
 
         req2 = urllib.request.Request(login_url, data=data2, headers=headers2)
         try:
-            with self._opener.open(req2, timeout=self.request_timeout) as resp2:
+            with opener.open(req2, timeout=self.request_timeout) as resp2:
                 res2 = json.loads(resp2.read().decode('utf-8'))
         except Exception as err:
             raise CannotConnect(f"Failed to complete login on step 2: {err}") from err
@@ -124,12 +141,16 @@ class VooTechnicolorApi:
         _LOGGER.debug("Successfully authenticated with VOO modem at %s", self.base_url)
         return True
 
-    async def _async_request(self, endpoint: str, retry_auth: bool = True) -> Dict[str, Any]:
+    async def _async_request(
+        self, endpoint: str, retry_auth: bool = True, retries: int = 1
+    ) -> Dict[str, Any]:
         """Make an authenticated GET request to a modem API endpoint in thread pool."""
-        return await asyncio.to_thread(self._sync_request, endpoint, retry_auth)
+        return await asyncio.to_thread(self._sync_request, endpoint, retry_auth, retries)
 
-    def _sync_request(self, endpoint: str, retry_auth: bool = True) -> Dict[str, Any]:
-        """Request endpoint using urllib."""
+    def _sync_request(
+        self, endpoint: str, retry_auth: bool = True, retries: int = 1
+    ) -> Dict[str, Any]:
+        """Request endpoint using urllib with retry support."""
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         cookies = {c.name: c.value for c in self._cj}
         auth_token = cookies.get("auth", self._auth_token)
@@ -137,36 +158,48 @@ class VooTechnicolorApi:
         headers = {
             "Accept": "application/json, text/javascript, */*; q=0.01",
             "X-Requested-With": "XMLHttpRequest",
-            "Referer": f"{self.base_url}/"
+            "Referer": f"{self.base_url}/",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Connection": "close",
         }
         if auth_token:
             headers["X-CSRF-TOKEN"] = auth_token
 
         req = urllib.request.Request(url, headers=headers)
+        opener = self._get_opener()
         try:
-            with self._opener.open(req, timeout=self.request_timeout) as resp:
+            with opener.open(req, timeout=self.request_timeout) as resp:
                 return json.loads(resp.read().decode('utf-8'))
         except urllib.error.HTTPError as err:
             if err.code == 401 and retry_auth:
                 _LOGGER.debug("Session expired (401), re-authenticating...")
                 self._sync_authenticate()
-                return self._sync_request(endpoint, retry_auth=False)
+                return self._sync_request(endpoint, retry_auth=False, retries=retries)
             raise CannotConnect(f"HTTP Error {err.code} on endpoint {endpoint}") from err
         except Exception as err:
+            if retries > 0:
+                _LOGGER.warning(
+                    "Request to %s failed (%s), retrying in 2 seconds...", endpoint, err
+                )
+                time.sleep(2)
+                return self._sync_request(endpoint, retry_auth=retry_auth, retries=retries - 1)
             raise CannotConnect(f"Error requesting {endpoint}: {err}") from err
 
     async def async_get_all_data(self) -> Dict[str, Any]:
-        """Fetch menu, modem DOCSIS metrics, and system information."""
-        try:
-            await self._async_request("api/v1/session/menu")
-        except (CannotConnect, InvalidAuth):
+        """Fetch modem DOCSIS metrics and system information."""
+        if not self._auth_token:
             await self.async_authenticate()
-            await self._async_request("api/v1/session/menu")
 
-        modem_resp = await self._async_request("api/v1/modem")
+        try:
+            modem_resp = await self._async_request("api/v1/modem")
+        except (CannotConnect, InvalidAuth) as err:
+            _LOGGER.debug("Failed requesting modem metrics (%s), attempting re-authentication...", err)
+            await self.async_authenticate()
+            modem_resp = await self._async_request("api/v1/modem")
+
         system_resp = await self._async_request("api/v1/system")
 
         return {
             "modem": modem_resp.get("data", {}),
-            "system": system_resp.get("data", {})
+            "system": system_resp.get("data", {}),
         }

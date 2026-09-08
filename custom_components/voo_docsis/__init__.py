@@ -30,6 +30,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     scan_interval = entry.options.get(
         CONF_SCAN_INTERVAL, entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
     )
+    if scan_interval == 30:
+        scan_interval = DEFAULT_SCAN_INTERVAL
 
     session = async_get_clientsession(hass)
     api = VooTechnicolorApi(host=host, username=username, password=password, session=session)
