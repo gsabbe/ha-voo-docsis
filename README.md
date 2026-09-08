@@ -1,6 +1,7 @@
 # VOO Technicolor DOCSIS Home Assistant Integration
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=gsabbe&repository=ha-voo-docsis&category=integration)
 
 Home Assistant integration for monitoring **DOCSIS cable modem metrics** from Technicolor routers provided by the ISP **VOO** in Belgium (e.g., Technicolor CGA4233VOO).
 
@@ -20,6 +21,12 @@ Home Assistant integration for monitoring **DOCSIS cable modem metrics** from Te
 ## Installation
 
 ### Method 1: HACS (Recommended)
+
+Click the button below to add this repository to your Home Assistant instance via HACS:
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=gsabbe&repository=ha-voo-docsis&category=integration)
+
+Or add it manually:
 1. Open **HACS** in Home Assistant.
 2. Click the 3 dots in the top right corner and select **Custom repositories**.
 3. Enter the repository URL: `https://github.com/gsabbe/ha-voo-docsis`
@@ -41,7 +48,7 @@ Home Assistant integration for monitoring **DOCSIS cable modem metrics** from Te
    - **Host / IP**: `192.168.100.1` (or your modem's IP address)
    - **Username**: `voo` (or modem login)
    - **Password**: Your modem web interface password
-   - **Update Interval**: `30` (seconds)
+   - **Update Interval**: `60` (seconds)
 4. Click **Submit**.
 
 ---
