@@ -186,17 +186,14 @@ class VooTechnicolorApi:
             raise CannotConnect(f"Error requesting {endpoint}: {err}") from err
 
     async def async_get_all_data(self) -> Dict[str, Any]:
-        """Fetch modem DOCSIS metrics and system information."""
-        if not self._auth_token:
-            await self.async_authenticate()
-
+        """Fetch menu, modem DOCSIS metrics, and system information."""
         try:
-            modem_resp = await self._async_request("api/v1/modem")
-        except (CannotConnect, InvalidAuth) as err:
-            _LOGGER.debug("Failed requesting modem metrics (%s), attempting re-authentication...", err)
+            await self._async_request("api/v1/session/menu")
+        except (CannotConnect, InvalidAuth):
             await self.async_authenticate()
-            modem_resp = await self._async_request("api/v1/modem")
+            await self._async_request("api/v1/session/menu")
 
+        modem_resp = await self._async_request("api/v1/modem")
         system_resp = await self._async_request("api/v1/system")
 
         return {
