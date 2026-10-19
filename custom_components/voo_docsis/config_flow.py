@@ -81,16 +81,11 @@ class VooDocsisConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
         """Get the options flow for this handler."""
-        return VooDocsisOptionsFlowHandler(config_entry)
+        return VooDocsisOptionsFlowHandler()
 
 
 class VooDocsisOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow for VOO Technicolor integration."""
-
-    def __init__(self, config_entry: Optional[config_entries.ConfigEntry] = None) -> None:
-        """Initialize options flow compatible with all HA versions."""
-        if config_entry is not None:
-            self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: Optional[Dict[str, Any]] = None
@@ -99,14 +94,10 @@ class VooDocsisOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        config_entry = getattr(self, "config_entry", None)
-        if config_entry:
-            scan_interval = config_entry.options.get(
-                CONF_SCAN_INTERVAL,
-                config_entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
-            )
-        else:
-            scan_interval = DEFAULT_SCAN_INTERVAL
+        scan_interval = self.config_entry.options.get(
+            CONF_SCAN_INTERVAL,
+            self.config_entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+        )
 
         return self.async_show_form(
             step_id="init",
