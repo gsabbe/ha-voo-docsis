@@ -13,17 +13,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       - name: Hassfest validation
-        uses: home-assistant/actions/hassfest@master
+        run: |
+          set -o pipefail
+          docker run --rm -v "${GITHUB_WORKSPACE}:/github/workspace" ghcr.io/home-assistant/hassfest:latest | tee /tmp/hassfest.log
+          if grep -F "[WARNING]" /tmp/hassfest.log; then
+            echo "::error::Hassfest reported warnings"
+            exit 1
+          fi
 
   validate-hacs:
     name: HACS Validation
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       - name: HACS Action
         uses: hacs/action@main
