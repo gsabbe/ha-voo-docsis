@@ -3,7 +3,7 @@ import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import CannotConnect, InvalidAuth, VooTechnicolorApi
@@ -38,8 +38,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     try:
         await api.async_authenticate()
-    except (CannotConnect, InvalidAuth) as err:
-        _LOGGER.error("Failed to connect or authenticate with VOO modem at %s: %s", host, err)
+    except InvalidAuth as err:
+        raise ConfigEntryAuthFailed(
+            f"Authentication failed for VOO modem at {host}: {err}"
+        ) from err
+    except CannotConnect as err:
+        _LOGGER.error("Failed to connect to VOO modem at %s: %s", host, err)
         raise ConfigEntryNotReady from err
 
     coordinator = VooDocsisDataUpdateCoordinator(

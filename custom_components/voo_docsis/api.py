@@ -6,6 +6,7 @@ import http.cookiejar
 import json
 import logging
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any, Dict, Optional
@@ -59,6 +60,7 @@ class VooTechnicolorApi:
         self._auth_token: str = ""
         self._cj = http.cookiejar.CookieJar()
         self._opener: Optional[urllib.request.OpenerDirector] = None
+        self._authenticated: bool = False
 
     def _get_opener(self) -> urllib.request.OpenerDirector:
         """Get or initialize urllib opener inside worker thread to avoid blocking event loop."""
@@ -72,6 +74,7 @@ class VooTechnicolorApi:
         """Close session resources."""
         self._opener = None
         self._cj.clear()
+        self._authenticated = False
 
     async def async_authenticate(self) -> bool:
         """Authenticate with the modem using the two-stage PBKDF2 challenge in thread pool."""
@@ -80,6 +83,7 @@ class VooTechnicolorApi:
     def _sync_authenticate(self) -> bool:
         """Authenticate using urllib with isolated cookie jar."""
         login_url = f"{self.base_url}/api/v1/session/login"
+        self._authenticated = False
         self._cj.clear()
         opener = self._get_opener()
 
@@ -100,6 +104,12 @@ class VooTechnicolorApi:
         try:
             with opener.open(req1, timeout=self.request_timeout) as resp:
                 res1 = json.loads(resp.read().decode('utf-8'))
+        except urllib.error.HTTPError as err:
+            if err.code in (401, 403):
+                raise InvalidAuth(
+                    f"Authentication rejected at {self.base_url}: HTTP {err.code}"
+                ) from err
+            raise CannotConnect(f"Failed to connect to modem at {self.base_url}: {err}") from err
         except Exception as err:
             raise CannotConnect(f"Failed to connect to modem at {self.base_url}: {err}") from err
 
@@ -129,6 +139,12 @@ class VooTechnicolorApi:
         try:
             with opener.open(req2, timeout=self.request_timeout) as resp2:
                 res2 = json.loads(resp2.read().decode('utf-8'))
+        except urllib.error.HTTPError as err:
+            if err.code in (401, 403):
+                raise InvalidAuth(
+                    f"Authentication rejected on step 2 at {self.base_url}: HTTP {err.code}"
+                ) from err
+            raise CannotConnect(f"Failed to complete login on step 2: {err}") from err
         except Exception as err:
             raise CannotConnect(f"Failed to complete login on step 2: {err}") from err
 
@@ -138,6 +154,7 @@ class VooTechnicolorApi:
         cookies = {c.name: c.value for c in self._cj}
         if "auth" in cookies:
             self._auth_token = cookies["auth"]
+        self._authenticated = True
         _LOGGER.debug("Successfully authenticated with VOO modem at %s", self.base_url)
         return True
 
@@ -171,10 +188,14 @@ class VooTechnicolorApi:
             with opener.open(req, timeout=self.request_timeout) as resp:
                 return json.loads(resp.read().decode('utf-8'))
         except urllib.error.HTTPError as err:
-            if err.code == 401 and retry_auth:
-                _LOGGER.debug("Session expired (401), re-authenticating...")
-                self._sync_authenticate()
-                return self._sync_request(endpoint, retry_auth=False, retries=retries)
+            if err.code in (401, 403):
+                if retry_auth:
+                    _LOGGER.debug("Session expired (%s), re-authenticating...", err.code)
+                    self._sync_authenticate()
+                    return self._sync_request(endpoint, retry_auth=False, retries=retries)
+                raise InvalidAuth(
+                    f"Authentication rejected (HTTP {err.code}) on endpoint {endpoint}"
+                ) from err
             raise CannotConnect(f"HTTP Error {err.code} on endpoint {endpoint}") from err
         except Exception as err:
             if retries > 0:
@@ -187,12 +208,10 @@ class VooTechnicolorApi:
 
     async def async_get_all_data(self) -> Dict[str, Any]:
         """Fetch menu, modem DOCSIS metrics, and system information."""
-        try:
-            await self._async_request("api/v1/session/menu")
-        except (CannotConnect, InvalidAuth):
+        if not self._authenticated:
             await self.async_authenticate()
-            await self._async_request("api/v1/session/menu")
 
+        await self._async_request("api/v1/session/menu")
         modem_resp = await self._async_request("api/v1/modem")
         system_resp = await self._async_request("api/v1/system")
 

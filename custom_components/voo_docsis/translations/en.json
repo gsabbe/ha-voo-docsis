@@ -10,6 +10,13 @@
           "password": "Password",
           "scan_interval": "Update Interval (seconds)"
         }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate VOO modem",
+        "description": "Enter the updated password for {username} at {host}.",
+        "data": {
+          "password": "Password"
+        }
       }
     },
     "error": {
@@ -18,7 +25,8 @@
       "unknown": "Unexpected error occurred."
     },
     "abort": {
-      "already_configured": "Modem is already configured."
+      "already_configured": "Modem is already configured.",
+      "reauth_successful": "Re-authentication was successful."
     }
   },
   "options": {

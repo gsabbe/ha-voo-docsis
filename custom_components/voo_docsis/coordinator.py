@@ -4,6 +4,7 @@ import logging
 from typing import Any, Dict
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import CannotConnect, InvalidAuth, VooTechnicolorApi
@@ -35,7 +36,11 @@ class VooDocsisDataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         try:
             raw_data = await self.api.async_get_all_data()
             return self._parse_data(raw_data)
-        except (CannotConnect, InvalidAuth) as err:
+        except InvalidAuth as err:
+            raise ConfigEntryAuthFailed(
+                f"Authentication failed with VOO modem: {err}"
+            ) from err
+        except CannotConnect as err:
             raise UpdateFailed(f"Error communicating with VOO modem: {err}") from err
         except Exception as err:
             _LOGGER.exception("Unexpected error fetching VOO DOCSIS metrics")
